@@ -1,0 +1,11 @@
+[package]
+name = "neopixel-nrf-pwm"
+version = "0.0.0"
+edition = "2021"
+authors = ["Carsten Thue-Bludworth <carstentb@protonmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nrf52832-hal = {version = "0.14.1"}
+smart-leds = "0.3.0"
