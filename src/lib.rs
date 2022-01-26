@@ -1,13 +1,16 @@
 #![no_std]
 
+use panic_rtt_target as _;
+use rtt_target::{rtt_init_print, rprintln};
 use smart_leds::{SmartLedsWrite, RGB8};
 use nrf52832_hal::{
-    pwm::{Pwm, Instance, LoadMode, StepMode, Seq, PwmSeq, PwmEvent},
+    pwm::{self, Pwm, Instance, LoadMode, StepMode, Seq, PwmSeq, PwmEvent},
+    gpio::{Pin, Output, PushPull},
     time::Hertz,
 };
 
 // A type definition for the DMA Buffer
-pub const NUM_PIXELS: usize   =  3;
+pub const NUM_PIXELS: usize   =  8;
 const NEOPIXEL_BIT_LEN: usize = 24;
 type SequenceBuffer = &'static mut [u16; NEOPIXEL_BIT_LEN*NUM_PIXELS+1];
 // PWM constants for sending zeros and ones
@@ -26,18 +29,20 @@ where
     T: Instance + core::fmt::Debug,
 {
     // Create a new NeoPixel object from an nrf52 PWM object
-    pub fn new(_pwm: Pwm<T>) -> NeoPixel<T> {//, dma_buf_0: &'static mut [u16], dma_buf_1: &'static mut [u16]) -> NeoPixel<T> {
-
+    pub fn new(_pwm: Pwm<T>, _pin: Pin<Output<PushPull>>) -> NeoPixel<T> {//, dma_buf_0: &'static mut [u16], dma_buf_1: &'static mut [u16]) -> NeoPixel<T> {
         static mut dma_buffer_0: [u16; NEOPIXEL_BIT_LEN*NUM_PIXELS+1] = [0; NEOPIXEL_BIT_LEN*NUM_PIXELS+1];
         static mut dma_buffer_1: [u16; NEOPIXEL_BIT_LEN*NUM_PIXELS+1] = [0; NEOPIXEL_BIT_LEN*NUM_PIXELS+1];
         // Configure pwm to play sequence 0 as one shot
-        _pwm.set_max_duty(PWM_MAX_DC)
+        _pwm.set_output_pin(pwm::Channel::C0, _pin)
+            .set_max_duty(PWM_MAX_DC)
             .set_period(Hertz(PWM_FREQ))
             .set_load_mode(LoadMode::Common)
             .set_step_mode(StepMode::Auto)
             .set_seq_refresh(Seq::Seq0, 0)
             .set_seq_end_delay(Seq::Seq0, 26)   // This will yield the 50us hold low we need
-            .one_shot();
+            .one_shot()
+            .enable_interrupt(PwmEvent::SeqEnd(Seq::Seq0))
+            .enable();
 
         Self {
             pwm: unsafe {_pwm.load(Some(&mut dma_buffer_0), Some(&mut dma_buffer_1), false).ok()},
@@ -69,7 +74,8 @@ where
             // extract the bits of color information
             for (color_num, color) in rgb.into().iter().enumerate() {
                 for bit in 0..8 {
-                    let dc = match (1 << bit) & color {
+                    // send MSB first
+                    let dc = match (0x80 >> bit) & color {
                         0 => PWM_ZERO_DC,
                         _ => PWM_ONE_DC,
                     };
